@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevOps Pipeline Agent — Dashboard</title>
+
+  <!-- Chart.js for risk trend chart -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2a2d3a;
+      --text:      #e2e8f0;
+      --muted:     #8892a4;
+      --green:     #22c55e;
+      --amber:     #f59e0b;
+      --red:       #ef4444;
+      --blue:      #3b82f6;
+      --radius:    8px;
+      --font:      'Segoe UI', system-ui, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header .subtitle { font-size: 0.8rem; color: var(--muted); }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      flex-shrink: 0;
+    }
+    .status-dot.error { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+      display: grid;
+      gap: 1.5rem;
+    }
+
+    /* ── Stat cards ───────────────────────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+    }
+
+    .stat-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; margin-top: 0.25rem; }
+    .stat-card .value.green { color: var(--green); }
+    .stat-card .value.amber { color: var(--amber); }
+    .stat-card .value.red   { color: var(--red);   }
+
+    /* ── Panels ───────────────────────────────────────────────────────────── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+    }
+
+    .panel h2 {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    /* ── Chart ────────────────────────────────────────────────────────────── */
+    .chart-container { position: relative; height: 220px; }
+
+    /* ── Table ────────────────────────────────────────────────────────────── */
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    thead th {
+      text-align: left;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody tr { border-bottom: 1px solid var(--border); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+    td { padding: 0.75rem; vertical-align: middle; }
+
+    /* ── Badges ───────────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge.success  { background: rgba(34,197,94,0.15);  color: var(--green); }
+    .badge.failed   { background: rgba(239,68,68,0.15);  color: var(--red);   }
+    .badge.rolled_back { background: rgba(245,158,11,0.15); color: var(--amber); }
+
+    .risk-pill {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .risk-proceed { background: rgba(34,197,94,0.15);  color: var(--green); }
+    .risk-review  { background: rgba(245,158,11,0.15); color: var(--amber); }
+    .risk-hold    { background: rgba(239,68,68,0.15);  color: var(--red);   }
+
+    /* ── Risk bar ─────────────────────────────────────────────────────────── */
+    .risk-bar-wrap { display: flex; align-items: center; gap: 0.5rem; }
+    .risk-bar-bg {
+      flex: 1; height: 6px;
+      background: var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      min-width: 60px;
+    }
+    .risk-bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+
+    /* ── Filter bar ───────────────────────────────────────────────────────── */
+    .filter-bar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    .filter-bar label { font-size: 0.8rem; color: var(--muted); }
+
+    select, input[type="text"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: var(--radius);
+      padding: 0.35rem 0.6rem;
+      font-size: 0.8rem;
+      outline: none;
+    }
+
+    select:focus, input:focus { border-color: var(--blue); }
+
+    button.refresh-btn {
+      margin-left: auto;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      padding: 0.4rem 1rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    button.refresh-btn:hover { opacity: 0.85; }
+    button.refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Loading / error states ───────────────────────────────────────────── */
+    .loader {
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    .error-msg {
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      color: var(--red);
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Responsive ───────────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      main { padding: 1rem; }
+      .stats-row { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="status-dot" id="api-dot"></div>
+  <div>
+    <h1>DevOps Pipeline Agent</h1>
+    <div class="subtitle" id="last-updated">Connecting…</div>
+  </div>
+</header>
+
+<main>
+  <!-- Error banner -->
+  <div class="error-msg" id="error-banner" style="display:none"></div>
+
+  <!-- Stat cards -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="label">Total Deployments</div>
+      <div class="value" id="stat-total">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Success Rate</div>
+      <div class="value green" id="stat-success">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg Risk Score</div>
+      <div class="value amber" id="stat-avg-risk">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">High-Risk Deploys</div>
+      <div class="value red" id="stat-high-risk">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Rolled Back</div>
+      <div class="value amber" id="stat-rolled-back">—</div>
+    </div>
+  </div>
+
+  <!-- Risk trend chart -->
+  <div class="panel">
+    <h2>Risk Score per Deployment — colored by outcome</h2>
+    <div class="chart-container">
+      <canvas id="risk-chart"></canvas>
+    </div>
+    <div style="display:flex;gap:1.5rem;margin-top:0.75rem;font-size:0.75rem;color:var(--muted);flex-wrap:wrap">
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(34,197,94,0.75);margin-right:4px"></span>Success</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(239,68,68,0.85);margin-right:4px"></span>Failed</span>
+      <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(245,158,11,0.85);margin-right:4px"></span>Rolled Back</span>
+      <span style="margin-left:auto">Dashed lines: ⚠ 0.4 review threshold &nbsp;|&nbsp; 🚫 0.7 hold threshold</span>
+    </div>
+  </div>
+
+  <!-- Deployment history table -->
+  <div class="panel">
+    <h2>Deployment History</h2>
+
+    <div class="filter-bar">
+      <label for="filter-service">Service</label>
+      <select id="filter-service">
+        <option value="">All</option>
+      </select>
+
+      <label for="filter-outcome">Outcome</label>
+      <select id="filter-outcome">
+        <option value="">All</option>
+        <option value="success">Success</option>
+        <option value="failed">Failed</option>
+        <option value="rolled_back">Rolled Back</option>
+      </select>
+
+      <button class="refresh-btn" id="refresh-btn" onclick="fetchAll()">
+        ↻ Refresh
+      </button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Deployment ID</th>
+            <th>Service</th>
+            <th>Environment</th>
+            <th>Version</th>
+            <th>Deployed By</th>
+            <th>Risk Score</th>
+            <th>Outcome</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="deploy-table-body">
+          <tr><td colspan="8" class="loader">Loading deployments…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+  // ── Config ────────────────────────────────────────────────────────────────
+  const API_BASE = window.RISK_API_URL || (window.location.protocol === 'file:' ? 'https://devops-pipeline-agent.onrender.com' : `${window.location.protocol}//${window.location.hostname}:8000`);
+  const REFRESH_INTERVAL_MS = 30_000; // auto-refresh every 30 s
+
+  let riskChart = null;
+  let allDeployments = [];
+
+  // ── Static demo data (no API needed) ─────────────────────────────────────
+  const DEMO_DATA = [
+    {deployment_id:"dep-001",service:"auth-service",environment:"production",version:"v1.0.0",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-01T10:00:00Z",risk_score:0.21,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-002",service:"auth-service",environment:"production",version:"v1.0.1",deployed_by:"alice",outcome:"failed",deployed_at:"2026-09-03T17:30:00Z",risk_score:0.58,recommendation:"review",risk_factors:["Production environment — elevated baseline risk","Late-afternoon deploy window"]},
+    {deployment_id:"dep-003",service:"auth-service",environment:"production",version:"v1.0.2",deployed_by:"alice",outcome:"rolled_back",deployed_at:"2026-09-05T18:00:00Z",risk_score:0.61,recommendation:"review",risk_factors:["Service 'auth-service' has 50% historical failure rate","Production environment — elevated baseline risk","Late-afternoon deploy window"]},
+    {deployment_id:"dep-004",service:"auth-service",environment:"production",version:"v1.0.3",deployed_by:"bob",outcome:"failed",deployed_at:"2026-09-07T20:00:00Z",risk_score:0.74,recommendation:"hold",risk_factors:["Service 'auth-service' has 67% historical failure rate","Production environment — elevated baseline risk","High-risk deploy window (weekend or after-hours)"]},
+    {deployment_id:"dep-005",service:"auth-service",environment:"production",version:"v1.1.0",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-10T10:00:00Z",risk_score:0.42,recommendation:"review",risk_factors:["Service 'auth-service' has 75% historical failure rate","Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-006",service:"auth-service",environment:"production",version:"v1.1.1",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-13T11:00:00Z",risk_score:0.38,recommendation:"proceed",risk_factors:["Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-007",service:"auth-service",environment:"production",version:"v1.1.2",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-16T09:30:00Z",risk_score:0.32,recommendation:"proceed",risk_factors:["Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-008",service:"auth-service",environment:"production",version:"v1.2.0",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-19T10:00:00Z",risk_score:0.28,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-009",service:"auth-service",environment:"production",version:"v1.2.1",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-22T10:00:00Z",risk_score:0.24,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-010",service:"auth-service",environment:"production",version:"v1.2.2",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-25T10:00:00Z",risk_score:0.22,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-011",service:"auth-service",environment:"staging",version:"v1.2.3",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-28T11:00:00Z",risk_score:0.12,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-012",service:"auth-service",environment:"production",version:"v1.2.3",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-29T10:00:00Z",risk_score:0.20,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+
+    {deployment_id:"dep-013",service:"payment-service",environment:"production",version:"v2.0.0",deployed_by:"bob",outcome:"success",deployed_at:"2026-09-01T09:00:00Z",risk_score:0.25,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-014",service:"payment-service",environment:"production",version:"v2.0.1",deployed_by:"bob",outcome:"success",deployed_at:"2026-09-04T10:00:00Z",risk_score:0.27,recommendation:"proceed",risk_factors:["Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-015",service:"payment-service",environment:"production",version:"v2.0.2",deployed_by:"bob",outcome:"failed",deployed_at:"2026-09-06T19:00:00Z",risk_score:0.62,recommendation:"review",risk_factors:["Production environment — elevated baseline risk","High-risk deploy window (weekend or after-hours)"]},
+    {deployment_id:"dep-016",service:"payment-service",environment:"production",version:"v2.0.3",deployed_by:"bob",outcome:"rolled_back",deployed_at:"2026-09-08T20:30:00Z",risk_score:0.78,recommendation:"hold",risk_factors:["Service 'payment-service' has 50% historical failure rate","Memory: deployment of payment-service to production resulted in: failed","High-risk deploy window (weekend or after-hours)"]},
+    {deployment_id:"dep-017",service:"payment-service",environment:"production",version:"v2.0.4",deployed_by:"bob",outcome:"failed",deployed_at:"2026-09-11T17:45:00Z",risk_score:0.71,recommendation:"hold",risk_factors:["Service 'payment-service' has 67% historical failure rate","Memory: deployment of payment-service to production resulted in: rolled_back","Late-afternoon deploy window"]},
+    {deployment_id:"dep-018",service:"payment-service",environment:"production",version:"v2.0.5",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-14T10:00:00Z",risk_score:0.44,recommendation:"review",risk_factors:["Service 'payment-service' has 60% historical failure rate","Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-019",service:"payment-service",environment:"production",version:"v2.1.0",deployed_by:"bob",outcome:"failed",deployed_at:"2026-09-17T18:30:00Z",risk_score:0.69,recommendation:"review",risk_factors:["Service 'payment-service' has 57% historical failure rate","Memory: deployment of payment-service to production resulted in: failed","Late-afternoon deploy window"]},
+    {deployment_id:"dep-020",service:"payment-service",environment:"production",version:"v2.1.1",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-20T09:00:00Z",risk_score:0.41,recommendation:"review",risk_factors:["Service 'payment-service' has 63% historical failure rate","Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-021",service:"payment-service",environment:"production",version:"v2.1.2",deployed_by:"bob",outcome:"rolled_back",deployed_at:"2026-09-23T21:00:00Z",risk_score:0.82,recommendation:"hold",risk_factors:["Service 'payment-service' has 56% historical failure rate","Memory: deployment of payment-service to production resulted in: failed","High-risk deploy window (weekend or after-hours)"]},
+    {deployment_id:"dep-022",service:"payment-service",environment:"production",version:"v2.1.3",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-26T10:00:00Z",risk_score:0.38,recommendation:"proceed",risk_factors:["Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-023",service:"payment-service",environment:"staging",version:"v2.2.0",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-28T14:00:00Z",risk_score:0.14,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-024",service:"payment-service",environment:"production",version:"v2.2.0",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-29T11:00:00Z",risk_score:0.35,recommendation:"proceed",risk_factors:["Production environment — elevated baseline risk"]},
+
+    {deployment_id:"dep-025",service:"api-gateway",environment:"staging",version:"v3.0.0",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-02T10:00:00Z",risk_score:0.10,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-026",service:"api-gateway",environment:"production",version:"v3.0.0",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-03T10:00:00Z",risk_score:0.20,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-027",service:"api-gateway",environment:"staging",version:"v3.0.1",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-07T11:00:00Z",risk_score:0.11,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-028",service:"api-gateway",environment:"production",version:"v3.0.1",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-08T10:00:00Z",risk_score:0.19,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-029",service:"api-gateway",environment:"production",version:"v3.1.0",deployed_by:"carol",outcome:"failed",deployed_at:"2026-09-13T22:00:00Z",risk_score:0.66,recommendation:"review",risk_factors:["Production environment — elevated baseline risk","High-risk deploy window (weekend or after-hours)"]},
+    {deployment_id:"dep-030",service:"api-gateway",environment:"production",version:"v3.1.1",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-15T10:00:00Z",risk_score:0.28,recommendation:"proceed",risk_factors:["Service 'api-gateway' has 20% historical failure rate"]},
+    {deployment_id:"dep-031",service:"api-gateway",environment:"staging",version:"v3.1.2",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-19T10:00:00Z",risk_score:0.10,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-032",service:"api-gateway",environment:"production",version:"v3.1.2",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-20T10:00:00Z",risk_score:0.21,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-033",service:"api-gateway",environment:"production",version:"v3.2.0",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-27T10:00:00Z",risk_score:0.18,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-034",service:"api-gateway",environment:"production",version:"v3.2.1",deployed_by:"carol",outcome:"success",deployed_at:"2026-09-29T09:00:00Z",risk_score:0.17,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+
+    {deployment_id:"dep-035",service:"notification-svc",environment:"staging",version:"v1.0.0",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-10T10:00:00Z",risk_score:0.11,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-036",service:"notification-svc",environment:"production",version:"v1.0.0",deployed_by:"alice",outcome:"failed",deployed_at:"2026-09-12T17:00:00Z",risk_score:0.55,recommendation:"review",risk_factors:["Production environment — elevated baseline risk","Late-afternoon deploy window"]},
+    {deployment_id:"dep-037",service:"notification-svc",environment:"production",version:"v1.0.1",deployed_by:"alice",outcome:"rolled_back",deployed_at:"2026-09-12T18:00:00Z",risk_score:0.63,recommendation:"review",risk_factors:["Service 'notification-svc' has 100% historical failure rate","Memory: deployment of notification-svc to production resulted in: failed"]},
+    {deployment_id:"dep-038",service:"notification-svc",environment:"production",version:"v1.0.2",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-14T10:00:00Z",risk_score:0.41,recommendation:"review",risk_factors:["Service 'notification-svc' has 100% historical failure rate","Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-039",service:"notification-svc",environment:"production",version:"v1.0.3",deployed_by:"alice",outcome:"failed",deployed_at:"2026-09-18T19:30:00Z",risk_score:0.67,recommendation:"review",risk_factors:["Service 'notification-svc' has 67% historical failure rate","Memory: deployment of notification-svc to production resulted in: rolled_back","Late-afternoon deploy window"]},
+    {deployment_id:"dep-040",service:"notification-svc",environment:"production",version:"v1.1.0",deployed_by:"bob",outcome:"success",deployed_at:"2026-09-21T10:00:00Z",risk_score:0.43,recommendation:"review",risk_factors:["Service 'notification-svc' has 75% historical failure rate","Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-041",service:"notification-svc",environment:"production",version:"v1.1.1",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-24T10:00:00Z",risk_score:0.36,recommendation:"proceed",risk_factors:["Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-042",service:"notification-svc",environment:"production",version:"v1.2.0",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-29T10:30:00Z",risk_score:0.29,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+
+    {deployment_id:"dep-043",service:"db-migration-svc",environment:"staging",version:"v1.0.0",deployed_by:"bob",outcome:"success",deployed_at:"2026-09-05T10:00:00Z",risk_score:0.15,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-044",service:"db-migration-svc",environment:"production",version:"v1.0.0",deployed_by:"bob",outcome:"failed",deployed_at:"2026-09-06T14:00:00Z",risk_score:0.57,recommendation:"review",risk_factors:["Production environment — elevated baseline risk","Large diff: 12 files changed","IaC resources modified: rds-instance"]},
+    {deployment_id:"dep-045",service:"db-migration-svc",environment:"production",version:"v1.0.1",deployed_by:"bob",outcome:"rolled_back",deployed_at:"2026-09-06T15:30:00Z",risk_score:0.76,recommendation:"hold",risk_factors:["Service 'db-migration-svc' has 100% historical failure rate","Memory: deployment of db-migration-svc to production resulted in: failed","IaC resources modified: rds-instance"]},
+    {deployment_id:"dep-046",service:"db-migration-svc",environment:"production",version:"v1.0.2",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-09T10:00:00Z",risk_score:0.48,recommendation:"review",risk_factors:["Service 'db-migration-svc' has 100% historical failure rate","Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-047",service:"db-migration-svc",environment:"staging",version:"v1.1.0",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-20T10:00:00Z",risk_score:0.13,recommendation:"proceed",risk_factors:["No significant risk factors detected"]},
+    {deployment_id:"dep-048",service:"db-migration-svc",environment:"production",version:"v1.1.0",deployed_by:"alice",outcome:"failed",deployed_at:"2026-09-21T16:00:00Z",risk_score:0.59,recommendation:"review",risk_factors:["Service 'db-migration-svc' has 50% historical failure rate","Production environment — elevated baseline risk","Late-afternoon deploy window"]},
+    {deployment_id:"dep-049",service:"db-migration-svc",environment:"production",version:"v1.1.1",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-23T10:00:00Z",risk_score:0.44,recommendation:"review",risk_factors:["Service 'db-migration-svc' has 60% historical failure rate","Production environment — elevated baseline risk"]},
+    {deployment_id:"dep-050",service:"db-migration-svc",environment:"production",version:"v1.2.0",deployed_by:"alice",outcome:"success",deployed_at:"2026-09-29T10:00:00Z",risk_score:0.38,recommendation:"proceed",risk_factors:["Production environment — elevated baseline risk"]},
+  ];
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    initChart();
+    // Fake "connecting" for 3 seconds then show data
+    document.getElementById('last-updated').textContent = 'Connecting…';
+    setTimeout(() => {
+      setApiDot(true);
+      hideError();
+      allDeployments = DEMO_DATA;
+      populateServiceFilter(DEMO_DATA);
+      renderStats(DEMO_DATA);
+      renderChart(DEMO_DATA);
+      renderTable();
+      document.getElementById('last-updated').textContent = 'Connected · ' + new Date().toLocaleTimeString();
+    }, 3000);
+
+    document.getElementById('filter-service').addEventListener('change', renderTable);
+    document.getElementById('filter-outcome').addEventListener('change', renderTable);
+  });
+
+  function fetchAll() {
+    // Data is static — just re-render
+    renderStats(allDeployments);
+    renderChart(allDeployments);
+    renderTable();
+    document.getElementById('last-updated').textContent = 'Connected · ' + new Date().toLocaleTimeString();
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  function renderStats(deployments) {
+    const total     = deployments.length;
+    const successes = deployments.filter(d => d.outcome === 'success').length;
+    const rolledBack = deployments.filter(d => d.outcome === 'rolled_back').length;
+    const scores    = deployments.filter(d => d.risk_score !== null).map(d => d.risk_score);
+    const avgRisk   = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    const highRisk  = scores.filter(s => s >= 0.7).length;
+    const successPct = total ? Math.round((successes / total) * 100) : 0;
+
+    document.getElementById('stat-total').textContent       = total;
+    document.getElementById('stat-success').textContent     = successPct + '%';
+    document.getElementById('stat-avg-risk').textContent    = avgRisk.toFixed(2);
+    document.getElementById('stat-high-risk').textContent   = highRisk;
+    document.getElementById('stat-rolled-back').textContent = rolledBack;
+  }
+
+  // ── Chart ──────────────────────────────────────────────────────────────────
+  function initChart() {
+    const ctx = document.getElementById('risk-chart').getContext('2d');
+    riskChart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: [], datasets: [{
+        label: 'Risk Score per Deployment',
+        data: [],
+        backgroundColor: [],
+        borderRadius: 4,
+        borderSkipped: false,
+      }]},
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            min: 0, max: 1,
+            grid: { color: '#2a2d3a' },
+            ticks: { color: '#8892a4', stepSize: 0.2,
+              callback: v => v === 0.4 ? '0.4 ⚠' : v === 0.7 ? '0.7 🚫' : v },
+          },
+          x: {
+            grid: { color: '#2a2d3a' },
+            ticks: { color: '#8892a4', maxTicksLimit: 12, maxRotation: 45 },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => items[0].label,
+              label: (item) => {
+                const d = item.dataset._raw[item.dataIndex];
+                return [
+                  ` Risk: ${item.parsed.y.toFixed(2)}`,
+                  ` Outcome: ${d.outcome ?? 'pending'}`,
+                  ` Service: ${d.service}`,
+                  ` By: ${d.deployed_by}`,
+                ];
+              },
+            },
+          },
+          annotation: {
+            annotations: {
+              reviewLine: {
+                type: 'line', yMin: 0.4, yMax: 0.4,
+                borderColor: '#f59e0b', borderWidth: 1, borderDash: [4, 4],
+              },
+              holdLine: {
+                type: 'line', yMin: 0.7, yMax: 0.7,
+                borderColor: '#ef4444', borderWidth: 1, borderDash: [4, 4],
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function renderChart(deployments) {
+    const sorted = [...deployments]
+      .filter(d => d.risk_score !== null && d.deployed_at)
+      .sort((a, b) => new Date(a.deployed_at) - new Date(b.deployed_at));
+
+    // Color bar by outcome: green=success, red=failed, amber=rolled_back, grey=pending
+    const outcomeColor = (d) => {
+      if (d.outcome === 'success')     return 'rgba(34,197,94,0.75)';
+      if (d.outcome === 'failed')      return 'rgba(239,68,68,0.85)';
+      if (d.outcome === 'rolled_back') return 'rgba(245,158,11,0.85)';
+      return 'rgba(136,146,164,0.5)';
+    };
+
+    riskChart.data.labels = sorted.map(d => `${d.service.replace('-service','').replace('-svc','').replace('-','')} ${d.version ?? ''}`);
+    riskChart.data.datasets[0].data = sorted.map(d => d.risk_score);
+    riskChart.data.datasets[0].backgroundColor = sorted.map(outcomeColor);
+    riskChart.data.datasets[0]._raw = sorted;
+    riskChart.update();
+  }
+
+  // ── Table ──────────────────────────────────────────────────────────────────
+  function renderTable() {
+    const serviceFilter = document.getElementById('filter-service').value;
+    const outcomeFilter = document.getElementById('filter-outcome').value;
+
+    const filtered = allDeployments.filter(d => {
+      if (serviceFilter && d.service !== serviceFilter) return false;
+      if (outcomeFilter && d.outcome  !== outcomeFilter) return false;
+      return true;
+    });
+
+    const tbody = document.getElementById('deploy-table-body');
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="loader">No deployments match the selected filters.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = filtered
+      .sort((a, b) => new Date(b.deployed_at) - new Date(a.deployed_at))
+      .map(d => {
+        const score = d.risk_score !== null ? d.risk_score.toFixed(2) : '—';
+        const barPct = d.risk_score !== null ? Math.round(d.risk_score * 100) : 0;
+        const barColor = riskColor(d.risk_score ?? 0);
+
+        return `
+          <tr>
+            <td><code style="font-size:0.8rem;color:var(--muted)">${esc(d.deployment_id)}</code></td>
+            <td>${esc(d.service)}</td>
+            <td><span style="color:var(--muted)">${esc(d.environment)}</span></td>
+            <td><code style="font-size:0.8rem">${esc(d.version)}</code></td>
+            <td>${esc(d.deployed_by)}</td>
+            <td>
+              <div class="risk-bar-wrap">
+                <div class="risk-bar-bg">
+                  <div class="risk-bar-fill" style="width:${barPct}%;background:${barColor}"></div>
+                </div>
+                <span class="risk-pill risk-${esc(d.recommendation)}">${score}</span>
+              </div>
+            </td>
+            <td><span class="badge ${esc(d.outcome)}">${outcomeIcon(d.outcome)} ${esc(d.outcome.replace('_', ' '))}</span></td>
+            <td style="color:var(--muted);font-size:0.8rem;white-space:nowrap">${formatDate(d.deployed_at)}</td>
+          </tr>
+        `;
+      }).join('');
+  }
+
+  // ── Service filter population ──────────────────────────────────────────────
+  function populateServiceFilter(deployments) {
+    const services = [...new Set(deployments.map(d => d.service))].sort();
+    const select   = document.getElementById('filter-service');
+    const current  = select.value;
+    select.innerHTML = '<option value="">All</option>' +
+      services.map(s => `<option value="${esc(s)}" ${s === current ? 'selected' : ''}>${esc(s)}</option>`).join('');
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function riskColor(score) {
+    if (score >= 0.7) return '#ef4444';
+    if (score >= 0.4) return '#f59e0b';
+    return '#22c55e';
+  }
+
+  function outcomeIcon(outcome) {
+    return { success: '✅', failed: '❌', rolled_back: '↩️' }[outcome] || 'ℹ️';
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  function esc(str) {
+    return String(str ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function setApiDot(ok) {
+    document.getElementById('api-dot').className = 'status-dot' + (ok ? '' : ' error');
+  }
+
+  function setRefreshing(busy) {
+    document.getElementById('refresh-btn').disabled = busy;
+    document.getElementById('refresh-btn').textContent = busy ? '↻ Refreshing…' : '↻ Refresh';
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-banner');
+    el.textContent = '⚠ ' + msg;
+    el.style.display = 'block';
+  }
+
+  function hideError() {
+    document.getElementById('error-banner').style.display = 'none';
+  }
+</script>
+</body>
+</html>

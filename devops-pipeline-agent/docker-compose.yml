@@ -1,0 +1,92 @@
+version: "3.9"
+
+services:
+  # ── Real risk-score API (Member 1) ───────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - ENV=development
+      - DB_PATH=/app/data/deployments.db
+      - HINDSIGHT_URL=${HINDSIGHT_URL:-http://hindsight:8888}
+      - HINDSIGHT_API_KEY=${HINDSIGHT_API_KEY:-}
+    volumes:
+      - .:/app
+      - db_data:/app/data
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Mock API — kept for local dev without Hindsight ──────────────────────────
+  mock_api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    command: uvicorn mock_api:app --host 0.0.0.0 --port 8002 --reload
+    profiles:
+      - mock   # only starts with: docker compose --profile mock up
+
+  # ── Webhook handler — receives events from GitHub/GitLab ─────────────────────
+  webhook_handler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      - RISK_API_URL=http://api:8000
+    volumes:
+      - .:/app
+    depends_on:
+      api:
+        condition: service_healthy
+    command: uvicorn webhook_handler:app --host 0.0.0.0 --port 8001 --reload
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Dashboard — static HTML served via Python http.server ────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    depends_on:
+      api:
+        condition: service_healthy
+    command: python3 -m http.server 8080 --directory dashboard
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/')"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  db_data: {}
